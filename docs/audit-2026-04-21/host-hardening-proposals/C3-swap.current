@@ -1,0 +1,5 @@
+               total        used        free      shared  buff/cache   available
+Mem:            17Gi       4.1Gi       7.9Gi       517Mi       6.5Gi        13Gi
+Swap:             0B          0B          0B
+---fstab---
+no swap in fstab

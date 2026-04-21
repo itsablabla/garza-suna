@@ -1,0 +1,12 @@
+# /etc/fail2ban/jail.d/sshd.local
+# Minimal fail2ban jail for sshd. Defaults are conservative — 3 failures in 10 min = 1 h ban.
+
+[DEFAULT]
+bantime  = 1h
+findtime = 10m
+maxretry = 3
+backend  = systemd
+
+[sshd]
+enabled = true
+port    = ssh

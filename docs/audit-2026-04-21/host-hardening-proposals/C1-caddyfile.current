@@ -1,0 +1,12 @@
+super.garzaos.online {
+	encode gzip zstd
+
+	@api path /v1 /v1/*
+	handle @api {
+		reverse_proxy 127.0.0.1:13738
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:13737
+	}
+}

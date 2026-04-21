@@ -1,0 +1,30 @@
+super.garzaos.online {
+        encode gzip zstd
+
+        log {
+                output file /var/log/caddy/super.garzaos.online.log {
+                        roll_size 50mb
+                        roll_keep 5
+                        roll_keep_for 720h
+                }
+                format json
+        }
+
+        header {
+                Strict-Transport-Security "max-age=31536000; includeSubDomains"
+                X-Frame-Options "SAMEORIGIN"
+                X-Content-Type-Options "nosniff"
+                Referrer-Policy "strict-origin-when-cross-origin"
+                Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+                -Server
+        }
+
+        @api path /v1 /v1/*
+        handle @api {
+                reverse_proxy 127.0.0.1:13738
+        }
+
+        handle {
+                reverse_proxy 127.0.0.1:13737
+        }
+}
