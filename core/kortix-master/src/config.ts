@@ -36,6 +36,24 @@ export const config = {
   // Feature flag: enable or disable local deployment routes (/kortix/deploy/*)
   KORTIX_DEPLOYMENTS_ENABLED: process.env.KORTIX_DEPLOYMENTS_ENABLED === 'true',
 
+  // ─── B.core: circuit-breaker + stuck-session reaper ────────────────────────
+  // Circuit-breaker for the OpenCode proxy. When the upstream emits N consecutive
+  // transient failures (timeout / connection refused / 5xx on non-file-status
+  // paths) the breaker trips open and subsequent calls fast-fail with 503
+  // "recovering" instead of the caller seeing 30s hangs / 502s. Default OFF
+  // until verified on prod; flip to 'true' in ~/.kortix/.env on the host.
+  KORTIX_CIRCUIT_BREAKER_ENABLED: process.env.KORTIX_CIRCUIT_BREAKER_ENABLED === 'true',
+  KORTIX_CIRCUIT_BREAKER_FAILURE_THRESHOLD: parseInt(process.env.KORTIX_CIRCUIT_BREAKER_FAILURE_THRESHOLD || '5'),
+  KORTIX_CIRCUIT_BREAKER_COOLDOWN_MS: parseInt(process.env.KORTIX_CIRCUIT_BREAKER_COOLDOWN_MS || '15000'),
+
+  // Stuck-session reaper. Activity-based: a session is only flagged when it has
+  // been NON-idle AND emitted zero observable activity for idleMs AND is older
+  // than minAgeMs AND is NOT marked noReap in session metadata. Default OFF.
+  KORTIX_SESSION_REAPER_ENABLED: process.env.KORTIX_SESSION_REAPER_ENABLED === 'true',
+  KORTIX_SESSION_IDLE_MS: parseInt(process.env.KORTIX_SESSION_IDLE_MS || '600000'),
+  KORTIX_SESSION_MIN_AGE_MS: parseInt(process.env.KORTIX_SESSION_MIN_AGE_MS || '60000'),
+  KORTIX_SESSION_SCAN_INTERVAL_MS: parseInt(process.env.KORTIX_SESSION_SCAN_INTERVAL_MS || '30000'),
+
   // Secret storage
   SECRET_FILE_PATH: process.env.SECRET_FILE_PATH || `${process.env.KORTIX_PERSISTENT_ROOT || '/persistent'}/secrets/.secrets.json`,
   SALT_FILE_PATH: process.env.SALT_FILE_PATH || `${process.env.KORTIX_PERSISTENT_ROOT || '/persistent'}/secrets/.salt`,
