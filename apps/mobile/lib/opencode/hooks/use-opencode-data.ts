@@ -396,10 +396,39 @@ export function useAddMcpServer(sandboxUrl: string | undefined) {
         config.url = params.url;
         if (params.headers && Object.keys(params.headers).length > 0) config.headers = params.headers;
       }
-      return opencodeFetch<Record<string, McpStatus>>(sandboxUrl, '/mcp', {
-        method: 'POST',
-        body: JSON.stringify({ name: params.name, config }),
-      });
+      // 1. Register with OpenCode in-memory so the server is immediately
+      //    active and we get back the full server status map for the UI.
+      const status = await opencodeFetch<Record<string, McpStatus>>(
+        sandboxUrl,
+        '/mcp',
+        {
+          method: 'POST',
+          body: JSON.stringify({ name: params.name, config }),
+        },
+      );
+
+      // 2. Persist to disk via PATCH /global/config so the server survives
+      //    `Instance.dispose()` / sandbox restarts. `POST /mcp` is
+      //    in-memory-only in OpenCode; PATCH /global/config deep-merges the
+      //    {mcp: {[name]: config}} block into `${instanceDir}/config.json`
+      //    and triggers a reload that re-initializes MCP servers from the
+      //    persisted config. Matches web fix for the same bug.
+      try {
+        await opencodeFetch(sandboxUrl, '/global/config', {
+          method: 'PATCH',
+          body: JSON.stringify({ config: { mcp: { [params.name]: config } } }),
+        });
+      } catch (err) {
+        // Non-fatal: in-memory add succeeded, so the server works for this
+        // session. Log so regressions are observable without breaking the
+        // happy path.
+        console.warn(
+          `❌ [use-opencode-data] Failed to persist MCP server "${params.name}" to config — it will disappear on sandbox restart.`,
+          err,
+        );
+      }
+
+      return status;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: opencodeKeys.mcpStatus(sandboxUrl || '') });
