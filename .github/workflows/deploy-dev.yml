@@ -22,6 +22,10 @@ concurrency:
   group: deploy-dev
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   # ── Gate: skip on push if auto-deploy is off ─────────────────────────────
   gate:
@@ -78,16 +82,17 @@ jobs:
       - run: git submodule sync --recursive && git submodule update --init --recursive --remote
       - uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push
         run: |
           SHA8="${GITHUB_SHA::8}"
           docker build --file apps/api/Dockerfile --build-arg SERVICE=apps/api \
-            --tag "kortix/kortix-api:dev-${SHA8}-amd64" \
-            --tag "kortix/kortix-api:dev-latest-amd64" .
-          docker push "kortix/kortix-api:dev-${SHA8}-amd64"
-          docker push "kortix/kortix-api:dev-latest-amd64"
+            --tag "ghcr.io/itsablabla/kortix-api:dev-${SHA8}-amd64" \
+            --tag "ghcr.io/itsablabla/kortix-api:dev-latest-amd64" .
+          docker push "ghcr.io/itsablabla/kortix-api:dev-${SHA8}-amd64"
+          docker push "ghcr.io/itsablabla/kortix-api:dev-latest-amd64"
 
   build-api-arm64:
     name: API (arm64)
@@ -100,16 +105,17 @@ jobs:
       - run: git submodule sync --recursive && git submodule update --init --recursive --remote
       - uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push
         run: |
           SHA8="${GITHUB_SHA::8}"
           docker build --file apps/api/Dockerfile --build-arg SERVICE=apps/api \
-            --tag "kortix/kortix-api:dev-${SHA8}-arm64" \
-            --tag "kortix/kortix-api:dev-latest-arm64" .
-          docker push "kortix/kortix-api:dev-${SHA8}-arm64"
-          docker push "kortix/kortix-api:dev-latest-arm64"
+            --tag "ghcr.io/itsablabla/kortix-api:dev-${SHA8}-arm64" \
+            --tag "ghcr.io/itsablabla/kortix-api:dev-latest-arm64" .
+          docker push "ghcr.io/itsablabla/kortix-api:dev-${SHA8}-arm64"
+          docker push "ghcr.io/itsablabla/kortix-api:dev-latest-arm64"
 
   merge-api:
     name: API manifest
@@ -120,23 +126,24 @@ jobs:
     steps:
       - uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Create multi-arch manifest
         id: meta
         run: |
           SHA8="${GITHUB_SHA::8}"
-          docker manifest create "kortix/kortix-api:dev-${SHA8}" \
-            "kortix/kortix-api:dev-${SHA8}-amd64" \
-            "kortix/kortix-api:dev-${SHA8}-arm64"
-          docker manifest push "kortix/kortix-api:dev-${SHA8}"
+          docker manifest create "ghcr.io/itsablabla/kortix-api:dev-${SHA8}" \
+            "ghcr.io/itsablabla/kortix-api:dev-${SHA8}-amd64" \
+            "ghcr.io/itsablabla/kortix-api:dev-${SHA8}-arm64"
+          docker manifest push "ghcr.io/itsablabla/kortix-api:dev-${SHA8}"
 
-          docker manifest create "kortix/kortix-api:dev-latest" \
-            "kortix/kortix-api:dev-latest-amd64" \
-            "kortix/kortix-api:dev-latest-arm64"
-          docker manifest push "kortix/kortix-api:dev-latest"
+          docker manifest create "ghcr.io/itsablabla/kortix-api:dev-latest" \
+            "ghcr.io/itsablabla/kortix-api:dev-latest-amd64" \
+            "ghcr.io/itsablabla/kortix-api:dev-latest-arm64"
+          docker manifest push "ghcr.io/itsablabla/kortix-api:dev-latest"
 
-          echo "image=kortix/kortix-api:dev-${SHA8}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/itsablabla/kortix-api:dev-${SHA8}" >> "$GITHUB_OUTPUT"
 
   # ── Build Frontend (amd64 + arm64 in parallel) ─────────────────────────────
   build-frontend-amd64:
@@ -155,16 +162,17 @@ jobs:
       - run: pnpm --filter ./apps/web build
       - uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push
         run: |
           SHA8="${GITHUB_SHA::8}"
           docker build --file apps/web/Dockerfile \
-            --tag "kortix/kortix-frontend:dev-${SHA8}-amd64" \
-            --tag "kortix/kortix-frontend:dev-latest-amd64" .
-          docker push "kortix/kortix-frontend:dev-${SHA8}-amd64"
-          docker push "kortix/kortix-frontend:dev-latest-amd64"
+            --tag "ghcr.io/itsablabla/kortix-frontend:dev-${SHA8}-amd64" \
+            --tag "ghcr.io/itsablabla/kortix-frontend:dev-latest-amd64" .
+          docker push "ghcr.io/itsablabla/kortix-frontend:dev-${SHA8}-amd64"
+          docker push "ghcr.io/itsablabla/kortix-frontend:dev-latest-amd64"
 
   build-frontend-arm64:
     name: Frontend (arm64)
@@ -182,16 +190,17 @@ jobs:
       - run: pnpm --filter ./apps/web build
       - uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push
         run: |
           SHA8="${GITHUB_SHA::8}"
           docker build --file apps/web/Dockerfile \
-            --tag "kortix/kortix-frontend:dev-${SHA8}-arm64" \
-            --tag "kortix/kortix-frontend:dev-latest-arm64" .
-          docker push "kortix/kortix-frontend:dev-${SHA8}-arm64"
-          docker push "kortix/kortix-frontend:dev-latest-arm64"
+            --tag "ghcr.io/itsablabla/kortix-frontend:dev-${SHA8}-arm64" \
+            --tag "ghcr.io/itsablabla/kortix-frontend:dev-latest-arm64" .
+          docker push "ghcr.io/itsablabla/kortix-frontend:dev-${SHA8}-arm64"
+          docker push "ghcr.io/itsablabla/kortix-frontend:dev-latest-arm64"
 
   merge-frontend:
     name: Frontend manifest
@@ -200,20 +209,21 @@ jobs:
     steps:
       - uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Create multi-arch manifest
         run: |
           SHA8="${GITHUB_SHA::8}"
-          docker manifest create "kortix/kortix-frontend:dev-${SHA8}" \
-            "kortix/kortix-frontend:dev-${SHA8}-amd64" \
-            "kortix/kortix-frontend:dev-${SHA8}-arm64"
-          docker manifest push "kortix/kortix-frontend:dev-${SHA8}"
+          docker manifest create "ghcr.io/itsablabla/kortix-frontend:dev-${SHA8}" \
+            "ghcr.io/itsablabla/kortix-frontend:dev-${SHA8}-amd64" \
+            "ghcr.io/itsablabla/kortix-frontend:dev-${SHA8}-arm64"
+          docker manifest push "ghcr.io/itsablabla/kortix-frontend:dev-${SHA8}"
 
-          docker manifest create "kortix/kortix-frontend:dev-latest" \
-            "kortix/kortix-frontend:dev-latest-amd64" \
-            "kortix/kortix-frontend:dev-latest-arm64"
-          docker manifest push "kortix/kortix-frontend:dev-latest"
+          docker manifest create "ghcr.io/itsablabla/kortix-frontend:dev-latest" \
+            "ghcr.io/itsablabla/kortix-frontend:dev-latest-amd64" \
+            "ghcr.io/itsablabla/kortix-frontend:dev-latest-arm64"
+          docker manifest push "ghcr.io/itsablabla/kortix-frontend:dev-latest"
 
   # ── Build Computer (amd64 + arm64 in parallel) ────────────────────────────
   build-computer-amd64:
@@ -227,16 +237,17 @@ jobs:
       - run: git submodule sync --recursive && git submodule update --init --recursive --remote
       - uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push
         run: |
           SHA8="${GITHUB_SHA::8}"
           docker build --file core/docker/Dockerfile \
-            --tag "kortix/computer:dev-${SHA8}-amd64" \
-            --tag "kortix/computer:dev-latest-amd64" .
-          docker push "kortix/computer:dev-${SHA8}-amd64"
-          docker push "kortix/computer:dev-latest-amd64"
+            --tag "ghcr.io/itsablabla/computer:dev-${SHA8}-amd64" \
+            --tag "ghcr.io/itsablabla/computer:dev-latest-amd64" .
+          docker push "ghcr.io/itsablabla/computer:dev-${SHA8}-amd64"
+          docker push "ghcr.io/itsablabla/computer:dev-latest-amd64"
 
   build-computer-arm64:
     name: Computer (arm64)
@@ -249,16 +260,17 @@ jobs:
       - run: git submodule sync --recursive && git submodule update --init --recursive --remote
       - uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push
         run: |
           SHA8="${GITHUB_SHA::8}"
           docker build --file core/docker/Dockerfile \
-            --tag "kortix/computer:dev-${SHA8}-arm64" \
-            --tag "kortix/computer:dev-latest-arm64" .
-          docker push "kortix/computer:dev-${SHA8}-arm64"
-          docker push "kortix/computer:dev-latest-arm64"
+            --tag "ghcr.io/itsablabla/computer:dev-${SHA8}-arm64" \
+            --tag "ghcr.io/itsablabla/computer:dev-latest-arm64" .
+          docker push "ghcr.io/itsablabla/computer:dev-${SHA8}-arm64"
+          docker push "ghcr.io/itsablabla/computer:dev-latest-arm64"
 
   merge-computer:
     name: Computer manifest
@@ -269,21 +281,22 @@ jobs:
     steps:
       - uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Create multi-arch manifest
         id: meta
         run: |
           SHA8="${GITHUB_SHA::8}"
-          docker manifest create "kortix/computer:dev-${SHA8}" \
-            "kortix/computer:dev-${SHA8}-amd64" \
-            "kortix/computer:dev-${SHA8}-arm64"
-          docker manifest push "kortix/computer:dev-${SHA8}"
+          docker manifest create "ghcr.io/itsablabla/computer:dev-${SHA8}" \
+            "ghcr.io/itsablabla/computer:dev-${SHA8}-amd64" \
+            "ghcr.io/itsablabla/computer:dev-${SHA8}-arm64"
+          docker manifest push "ghcr.io/itsablabla/computer:dev-${SHA8}"
 
-          docker manifest create "kortix/computer:dev-latest" \
-            "kortix/computer:dev-latest-amd64" \
-            "kortix/computer:dev-latest-arm64"
-          docker manifest push "kortix/computer:dev-latest"
+          docker manifest create "ghcr.io/itsablabla/computer:dev-latest" \
+            "ghcr.io/itsablabla/computer:dev-latest-amd64" \
+            "ghcr.io/itsablabla/computer:dev-latest-arm64"
+          docker manifest push "ghcr.io/itsablabla/computer:dev-latest"
 
           echo "tag=dev-${SHA8}" >> "$GITHUB_OUTPUT"
 

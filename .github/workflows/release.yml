@@ -44,12 +44,13 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Re-tag all images
         run: |
-          for IMAGE in kortix/kortix-api kortix/kortix-frontend kortix/computer; do
+          for IMAGE in ghcr.io/itsablabla/kortix-api ghcr.io/itsablabla/kortix-frontend ghcr.io/itsablabla/computer; do
             echo "Re-tagging $IMAGE:dev-latest → $IMAGE:${{ env.VERSION }} + $IMAGE:latest"
 
             # Use buildx imagetools to create new tags from existing multi-arch manifest
@@ -64,15 +65,19 @@ jobs:
       - name: Summary
         run: |
           echo "### Re-tagged dev-latest → v${{ env.VERSION }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`kortix/kortix-api:${{ env.VERSION }}\` (multi-arch)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`kortix/kortix-frontend:${{ env.VERSION }}\` (multi-arch)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- \`kortix/computer:${{ env.VERSION }}\` (multi-arch)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`ghcr.io/itsablabla/kortix-api:${{ env.VERSION }}\` (multi-arch)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`ghcr.io/itsablabla/kortix-frontend:${{ env.VERSION }}\` (multi-arch)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`ghcr.io/itsablabla/computer:${{ env.VERSION }}\` (multi-arch)" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "_Zero rebuilds — re-tagged from dev-latest manifests._" >> "$GITHUB_STEP_SUMMARY"
 
-  # ── Deploy API to prod VPS ─────────────────────────────────────────────────
+  # ── Deploy to prod VPS (super.garzaos.online) ─────────────────────────────
+  # Prod topology is ~/.kortix/ with docker-compose.yml + .env (image names
+  # driven by env vars). Update the .env to point at the new GHCR-versioned
+  # images, pull, and rolling-recreate. No nginx blue/green dance here —
+  # prod fronts with Caddy, and docker compose handles the swap.
   deploy-prod:
-    name: Deploy API to prod
+    name: Deploy to prod
     needs: retag-images
     runs-on: ubuntu-latest
     steps:
@@ -85,20 +90,48 @@ jobs:
           port: 22
           timeout: 600s
           script: |
-            set -e
-            if [ ! -d ~/suna ]; then
-              git clone https://github.com/kortix-ai/suna.git ~/suna
+            set -euo pipefail
+            cd ~/.kortix
+
+            echo "[1/4] Updating .env to v${{ env.VERSION }} on GHCR..."
+            # Backup + in-place bump of image refs and version vars
+            cp .env ".env.bak.$(date +%s)"
+            sed -i \
+              -e "s|^API_IMAGE=.*|API_IMAGE=ghcr.io/itsablabla/kortix-api:${{ env.VERSION }}|" \
+              -e "s|^FRONTEND_IMAGE=.*|FRONTEND_IMAGE=ghcr.io/itsablabla/kortix-frontend:${{ env.VERSION }}|" \
+              -e "s|^SANDBOX_IMAGE=.*|SANDBOX_IMAGE=ghcr.io/itsablabla/computer:${{ env.VERSION }}|" \
+              -e "s|^KORTIX_VERSION=.*|KORTIX_VERSION=${{ env.VERSION }}|" \
+              -e "s|^KORTIX_SANDBOX_VERSION=.*|KORTIX_SANDBOX_VERSION=${{ env.VERSION }}|" \
+              .env
+            grep -E '^(API_IMAGE|FRONTEND_IMAGE|SANDBOX_IMAGE|KORTIX_VERSION|KORTIX_SANDBOX_VERSION)=' .env
+
+            echo "[2/4] Pulling new images from GHCR..."
+            docker compose pull
+
+            echo "[3/4] Rolling recreate (docker compose up -d)..."
+            docker compose up -d --remove-orphans
+
+            echo "[4/4] Post-deploy verification..."
+            sleep 8
+            docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' | head -20
+
+            # API container health probe (internal, via the compose network)
+            if docker compose exec -T kortix-api curl -sf http://127.0.0.1:8008/v1/health >/dev/null 2>&1; then
+              echo "  [OK] kortix-api /v1/health responding"
+            else
+              # Try the alternative health path
+              docker compose exec -T kortix-api curl -sf http://127.0.0.1:8008/api/health >/dev/null 2>&1 \
+                && echo "  [OK] kortix-api /api/health responding" \
+                || (echo "  [FAIL] kortix-api health check failed"; docker compose logs --tail 40 kortix-api; exit 1)
             fi
-            cd ~/suna
-            git -c fetch.recurseSubmodules=false fetch origin main
-            git reset --hard origin/main
-            git submodule sync --recursive
-            git submodule update --init --recursive --remote
-            PREBUILT_IMAGE="kortix/kortix-api:${{ env.VERSION }}" bash scripts/deploy-zero-downtime.sh
 
       - name: Summary
         run: |
-          echo "### Deployed API v${{ env.VERSION }} → **prod**" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Deployed v${{ env.VERSION }} to **prod** (super.garzaos.online)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- API:      \`ghcr.io/itsablabla/kortix-api:${{ env.VERSION }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Frontend: \`ghcr.io/itsablabla/kortix-frontend:${{ env.VERSION }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Sandbox:  \`ghcr.io/itsablabla/computer:${{ env.VERSION }}\`" >> "$GITHUB_STEP_SUMMARY"
 
   # ── Force-sync production branch to main (Vercel) ─────────────────────────
   update-production-branch:
@@ -154,9 +187,9 @@ jobs:
             echo ""
             echo "### Docker Images"
             echo ""
-            echo "- \`kortix/computer:${{ env.VERSION }}\`"
-            echo "- \`kortix/kortix-api:${{ env.VERSION }}\`"
-            echo "- \`kortix/kortix-frontend:${{ env.VERSION }}\`"
+            echo "- \`ghcr.io/itsablabla/computer:${{ env.VERSION }}\`"
+            echo "- \`ghcr.io/itsablabla/kortix-api:${{ env.VERSION }}\`"
+            echo "- \`ghcr.io/itsablabla/kortix-frontend:${{ env.VERSION }}\`"
           } > /tmp/release-notes.md
           cat /tmp/release-notes.md
 
@@ -172,7 +205,7 @@ jobs:
           gh release create "v${{ env.VERSION }}" \
             --title "v${{ env.VERSION }} — ${{ env.TITLE }}" \
             --notes-file /tmp/release-notes.md \
-            --repo kortix-ai/suna
+            --repo itsablabla/garza-suna
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
