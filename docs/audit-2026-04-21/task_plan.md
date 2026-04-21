@@ -23,11 +23,10 @@ And take low-risk opportunities to harden the host per the audit's P2/P3 recomme
 
 ## Phases
 
-### Phase A — sandbox quick-fix (operational)
-- [ ] `docker restart kortix-hosted-sandbox` on `super.garzaos.online`
-- [ ] Verify `/kortix/health` returns 200 via API path within 30 s of restart
-- [ ] Verify `docker ps` shows sandbox Up; no RestartCount increase from previous
-- [ ] Capture before/after metrics (CPU, PIDs, busy sessions) in `findings.md`
+### Phase A — sandbox quick-fix (operational) — DEFERRED
+- [~] Pre-restart probe showed symptom has already self-cleared (busy=0, health=200, CPU 4.2%). Restart would be preventive, not corrective.
+- [~] Re-open the moment `Unreachable` badge re-appears or `busy` count > 2 for > 2 min.
+- See `progress.md` entry A.2 for rationale.
 
 ### Phase C — host hardening (5 commits, each reversible)
 - [ ] **C1** — Caddy security headers block (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, CSP in Report-Only)
