@@ -15,6 +15,10 @@ const state = {
   subscriptionResults: {} as Record<string, any[]>,
 };
 
+const mockConfig = {
+  KORTIX_BILLING_INTERNAL_ENABLED: true,
+};
+
 const insertCalls: Array<{ table: string; data: Record<string, unknown> }> = [];
 const upsertCustomerCalls: Array<Record<string, unknown>> = [];
 const upsertCreditAccountCalls: Array<{ accountId: string; data: Record<string, unknown> }> = [];
@@ -65,6 +69,8 @@ mock.module('@kortix/db', () => ({
 }));
 
 mock.module('../shared/db', () => ({ db: fakeDb }));
+
+mock.module('../config', () => ({ config: mockConfig }));
 
 mock.module('../billing/repositories/customers', () => ({
   getCustomerByAccountId: async () => state.legacyCustomer,
@@ -133,6 +139,7 @@ beforeEach(() => {
   upsertCreditAccountCalls.length = 0;
   resetExpiringCreditsCalls.length = 0;
   stripeListCalls.length = 0;
+  mockConfig.KORTIX_BILLING_INTERNAL_ENABLED = true;
 });
 
 describe('resolveAccountId legacy billing sync', () => {
@@ -202,5 +209,52 @@ describe('resolveAccountId legacy billing sync', () => {
     expect(stripeListCalls).toHaveLength(0);
     expect(upsertCreditAccountCalls).toHaveLength(0);
     expect(insertCalls).toHaveLength(0);
+  });
+
+  test('skips Stripe sync entirely when KORTIX_BILLING_INTERNAL_ENABLED is false (self-hosted)', async () => {
+    mockConfig.KORTIX_BILLING_INTERNAL_ENABLED = false;
+    state.membership = { accountId: 'acct_selfhost_123' };
+    state.legacyCustomer = { id: 'cus_selfhost_123', email: 'selfhost@example.com' };
+    state.subscriptionResults = {
+      cus_selfhost_123: [
+        {
+          id: 'sub_selfhost_123',
+          status: 'active',
+          items: { data: [{ price: { id: 'price_paid_monthly', recurring: { interval: 'month' } } }] },
+        },
+      ],
+    };
+
+    const accountId = await resolveAccountId('user_selfhost_123');
+
+    expect(accountId).toBe('acct_selfhost_123');
+    // Critical: no Stripe API calls, no DB writes from the billing path.
+    // The real-world symptom is 800+ `[resolve-account] Stripe sync error` logs
+    // per 10 min saturating the API container; the gate must prevent them entirely.
+    expect(stripeListCalls).toHaveLength(0);
+    expect(upsertCustomerCalls).toHaveLength(0);
+    expect(upsertCreditAccountCalls).toHaveLength(0);
+    expect(resetExpiringCreditsCalls).toHaveLength(0);
+  });
+
+  test('skips Stripe sync in the legacy basejump migration path when billing is disabled', async () => {
+    mockConfig.KORTIX_BILLING_INTERNAL_ENABLED = false;
+    // No accountMembers row → falls through to accountUser (basejump) path.
+    state.legacyMembership = { accountId: 'acct_bjump_123' };
+    state.legacyCustomer = { id: 'cus_bjump_123', email: 'bjump@example.com' };
+    state.subscriptionResults = {
+      cus_bjump_123: [
+        { id: 'sub_bjump_123', status: 'active', items: { data: [{ price: { id: 'price_paid_yearly', recurring: { interval: 'year' } } }] } },
+      ],
+    };
+
+    const accountId = await resolveAccountId('user_bjump_123');
+
+    expect(accountId).toBe('acct_bjump_123');
+    // Lazy-migration inserts into accounts + accountMembers are still expected
+    // (those are free and non-Stripe); only the Stripe sync should be skipped.
+    expect(insertCalls.map((c) => c.table).sort()).toEqual(['accountMembers', 'accounts']);
+    expect(stripeListCalls).toHaveLength(0);
+    expect(upsertCreditAccountCalls).toHaveLength(0);
   });
 });
