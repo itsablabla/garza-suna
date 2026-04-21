@@ -1,8 +1,16 @@
 import { eq } from 'drizzle-orm';
 import { accounts, accountMembers, accountUser } from '@kortix/db';
 import { db } from './db';
+import { config } from '../config';
 
 async function syncLegacySubscription(accountId: string): Promise<void> {
+  // Self-hosted / billing-disabled deployments have no Stripe customers and no
+  // basejump.billing_customers table, so the sync query fails on every account
+  // resolution. Under dashboard polling load this saturates the API container
+  // and surfaces as upstream 502/EOFs at the edge proxy. Gate the call on the
+  // same flag the rest of the billing code uses.
+  if (!config.KORTIX_BILLING_INTERNAL_ENABLED) return;
+
   const { syncLegacyStripeSubscription } = await import('../billing/services/legacy-stripe-sync');
   const result = await syncLegacyStripeSubscription(accountId);
   if (result.status === 'error') {
