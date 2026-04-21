@@ -36,6 +36,8 @@ import preferencesRouter from './routes/preferences'
 import projectsRouter from './routes/projects'
 import { tasksRouter } from './routes/tasks'
 import { serviceManager } from './services/service-manager'
+import { openCodeBreaker } from './services/opencode-breaker'
+import { getStuckSessionRunner } from './services/stuck-session-runner'
 import { config } from './config'
 import { loadBootstrapEnv, normalizeBootstrapAuthAliases, saveBootstrapEnv } from './services/bootstrap-env'
 import { HealthResponse, PortsResponse } from './schemas/common'
@@ -136,6 +138,21 @@ if (process.env.KORTIX_DISABLE_CORE_SUPERVISOR !== 'true') {
   void serviceManager.start().catch(err =>
     console.error('[Kortix Master] service manager start error:', err)
   )
+}
+
+// ─── B.core: stuck-session reaper ───────────────────────────────────────────
+// Activity-based reaper that aborts sessions which have been non-idle AND
+// emitted zero activity for KORTIX_SESSION_IDLE_MS. Default OFF so prod can
+// verify the ticker is stable before flipping the switch in ~/.kortix/.env.
+if (config.KORTIX_SESSION_REAPER_ENABLED) {
+  try {
+    getStuckSessionRunner().start()
+    console.log(
+      `[Kortix Master] stuck-session reaper started (idleMs=${config.KORTIX_SESSION_IDLE_MS}, minAgeMs=${config.KORTIX_SESSION_MIN_AGE_MS}, scanMs=${config.KORTIX_SESSION_SCAN_INTERVAL_MS})`,
+    )
+  } catch (err) {
+    console.error('[Kortix Master] stuck-session reaper start error:', err)
+  }
 }
 
 // Cron scheduling + webhook routing handled by unified triggers plugin.
@@ -326,7 +343,36 @@ app.get('/kortix/health',
     await checkOpenCodeReady()
     const status = openCodeReady ? 'ok' : 'starting'
     const httpStatus = openCodeReady ? 200 : 503
-    return c.json({ status, version, imageVersion: version, activeWs: activeConnections, runtimeReady: openCodeReady }, httpStatus)
+
+    // B.core recovery signals. Clients use these to render a "recovering" pill
+    // instead of "Unreachable Xs" when the upstream is wedged. Always present
+    // (even when flags are off) so client code can rely on the shape.
+    const breakerSnap = openCodeBreaker.snapshot()
+    const recovery = {
+      circuitBreaker: {
+        enabled: config.KORTIX_CIRCUIT_BREAKER_ENABLED,
+        state: breakerSnap.state,
+        consecutiveFailures: breakerSnap.consecutiveFailures,
+        openedAt: breakerSnap.openedAt,
+      },
+      sessionReaper: config.KORTIX_SESSION_REAPER_ENABLED
+        ? getStuckSessionRunner().snapshot()
+        : { enabled: false },
+      recovering:
+        config.KORTIX_CIRCUIT_BREAKER_ENABLED && breakerSnap.state !== 'closed',
+    }
+
+    return c.json(
+      {
+        status,
+        version,
+        imageVersion: version,
+        activeWs: activeConnections,
+        runtimeReady: openCodeReady,
+        recovery,
+      },
+      httpStatus,
+    )
   },
 )
 

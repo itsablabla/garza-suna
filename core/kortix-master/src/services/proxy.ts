@@ -2,6 +2,7 @@
 import type { Context } from 'hono'
 import { config } from '../config'
 import { serviceManager } from './service-manager'
+import { openCodeBreaker } from './opencode-breaker'
 
 // 30s timeout for regular requests
 const FETCH_TIMEOUT_MS = 30_000
@@ -37,6 +38,23 @@ async function isOpenCodeHealthy(): Promise<boolean> {
 export async function proxyToOpenCode(c: Context): Promise<Response> {
   const url = new URL(c.req.url)
   const targetUrl = `http://${config.OPENCODE_HOST}:${config.OPENCODE_PORT}${url.pathname}${url.search}`
+
+  // Circuit-breaker fast-fail. When the breaker is open the upstream is known
+  // to be wedged; returning 503 immediately is better than burning a 30s
+  // timeout and the caller can render a "recovering" state. /file/status is
+  // excluded because it's polled constantly from the frontend and its failure
+  // is not a reliable wedge signal.
+  if (url.pathname !== '/file/status' && !openCodeBreaker.canProceed()) {
+    const snap = openCodeBreaker.snapshot()
+    return c.json(
+      {
+        error: 'OpenCode recovering',
+        details: 'upstream is temporarily unavailable; a recovery attempt is scheduled',
+        breaker: snap,
+      },
+      503,
+    )
+  }
   const requestBody = c.req.method !== 'GET' && c.req.method !== 'HEAD'
     ? await c.req.raw.arrayBuffer()
     : undefined
@@ -89,6 +107,18 @@ export async function proxyToOpenCode(c: Context): Promise<Response> {
   try {
     const response = await fetchUpstream()
 
+    // Record breaker outcome based on upstream HTTP status. 5xx counts as a
+    // failure (including 502/503/504); 4xx is a client error and should not
+    // trip the breaker. We exclude /file/status from influencing the breaker
+    // (matches the existing `recover()` gate).
+    if (url.pathname !== '/file/status') {
+      if (response.status >= 500) {
+        openCodeBreaker.onFailure()
+      } else {
+        openCodeBreaker.onSuccess()
+      }
+    }
+
     // Check if this is an SSE/streaming response — pass body as stream
     const contentType = response.headers.get('content-type') || ''
     if (contentType.includes('text/event-stream') || contentType.includes('application/octet-stream')) {
@@ -139,6 +169,7 @@ export async function proxyToOpenCode(c: Context): Promise<Response> {
       if (!acceptsSSE) {
         const healthy = await isOpenCodeHealthy()
         if (!healthy && recover(url.pathname)) {
+          openCodeBreaker.onFailure()
           void serviceManager.requestRecovery('opencode-serve', `proxy-timeout:${url.pathname}`)
         }
         note(
@@ -157,6 +188,7 @@ export async function proxyToOpenCode(c: Context): Promise<Response> {
         `unreachable:${c.req.method}:${url.pathname}`,
         `[Kortix Master] OpenCode unreachable on ${c.req.method} ${url.pathname}: ${errMsg} — is OpenCode running on ${config.OPENCODE_HOST}:${config.OPENCODE_PORT}?`,
       )
+      if (recover(url.pathname)) openCodeBreaker.onFailure()
       const recovery = recover(url.pathname)
         ? await serviceManager.requestRecovery('opencode-serve', `proxy-connect:${url.pathname}`)
         : null
