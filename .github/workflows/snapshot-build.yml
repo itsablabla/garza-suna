@@ -52,7 +52,7 @@ jobs:
           # Push events don't have inputs — default to dev-latest/dev
           V="${{ inputs.version || 'dev-latest' }}"
           echo "version=$V" >> "$GITHUB_OUTPUT"
-          echo "image=kortix/computer:$V" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/itsablabla/computer:$V" >> "$GITHUB_OUTPUT"
           echo "snapshot=kortix-computer-v$V" >> "$GITHUB_OUTPUT"
           echo "Version: $V"
 
@@ -62,7 +62,7 @@ jobs:
           STARTUP=$(cat <<'SCRIPT'
           #!/bin/bash
           set -e
-          curl -fsSL https://raw.githubusercontent.com/kortix-ai/suna/main/scripts/start-sandbox.sh -o /tmp/start-sandbox.sh
+          curl -fsSL https://raw.githubusercontent.com/itsablabla/garza-suna/main/scripts/start-sandbox.sh -o /tmp/start-sandbox.sh
           chmod +x /tmp/start-sandbox.sh
           /tmp/start-sandbox.sh '${{ steps.v.outputs.image }}'
           SCRIPT
