@@ -25,6 +25,7 @@ concurrency:
 permissions:
   contents: read
   packages: write
+  actions: write  # trigger-dev-snapshot uses gh workflow run (GITHUB_TOKEN fallback)
 
 jobs:
   # ── Gate: skip on push if auto-deploy is off ─────────────────────────────
