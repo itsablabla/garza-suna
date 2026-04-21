@@ -86,11 +86,40 @@ export function useAddMcpServer() {
                 : {}),
             };
 
+      // 1. Register with OpenCode in-memory so the server is immediately active
+      //    and we get back the full server status map for the UI.
       const result = await client.mcp.add({
         name: params.name,
         config,
       });
-      return unwrap(result) as Record<string, McpStatus>;
+      const status = unwrap(result) as Record<string, McpStatus>;
+
+      // 2. Persist to disk via PATCH /config so the server survives
+      //    `Instance.dispose()` / sandbox restarts. `client.mcp.add()` is
+      //    in-memory-only in OpenCode; `config.update()` deep-merges the
+      //    {mcp: {[name]: config}} block into `${instanceDir}/config.json`
+      //    and triggers a reload that re-initializes all MCP servers from
+      //    the persisted config.
+      //
+      //    We do this after the in-memory add (not instead of it) so the
+      //    caller gets an immediately-usable status map and the UI doesn't
+      //    have to wait for the reload round-trip.
+      try {
+        await client.global.config.update({
+          config: { mcp: { [params.name]: config } },
+        } as any);
+      } catch (err) {
+        // Non-fatal: in-memory add succeeded, so the server works for this
+        // session. Surface a console warning so we can catch persistence
+        // regressions without breaking the happy path.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[use-opencode-mcp] Failed to persist MCP server "${params.name}" to config — it will disappear on sandbox restart.`,
+          err,
+        );
+      }
+
+      return status;
     },
     onSuccess: (data) => {
       // Optimistically set the full status map returned by add()
