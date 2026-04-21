@@ -870,6 +870,15 @@ export class LocalDockerProvider implements SandboxProvider {
       'REPLICATE_API_URL',
       'SERPER_API_URL',
       'FIRECRAWL_API_URL',
+      // B.core recovery flags — set explicitly below so the sandbox .env
+      // file cannot silently override the autonomous-always-on defaults.
+      'KORTIX_CIRCUIT_BREAKER_ENABLED',
+      'KORTIX_CIRCUIT_BREAKER_FAILURE_THRESHOLD',
+      'KORTIX_CIRCUIT_BREAKER_COOLDOWN_MS',
+      'KORTIX_SESSION_REAPER_ENABLED',
+      'KORTIX_SESSION_IDLE_MS',
+      'KORTIX_SESSION_MIN_AGE_MS',
+      'KORTIX_SESSION_SCAN_INTERVAL_MS',
     ]);
 
     const filteredSandboxEnv = sandboxEnvVars.filter((entry) => {
