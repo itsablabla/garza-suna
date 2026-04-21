@@ -28,17 +28,12 @@ And take low-risk opportunities to harden the host per the audit's P2/P3 recomme
 - [~] Re-open the moment `Unreachable` badge re-appears or `busy` count > 2 for > 2 min.
 - See `progress.md` entry A.2 for rationale.
 
-### Phase C — host hardening (5 commits, each reversible)
-- [ ] **C1** — Caddy security headers block (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, CSP in Report-Only)
-  - Verify: `curl -sI https://super.garzaos.online/` shows new headers; `curl -sI` follow-up through main app path still returns 2xx/3xx
-- [ ] **C2** — `/etc/docker/daemon.json` with `log-opts: {max-size: "50m", max-file: "3"}`, `live-restore: true`
-  - Verify: `docker info` shows new logging driver opts; `systemctl reload docker` returns clean; all 3 containers still Up afterward
-- [ ] **C3** — 4 GB swap file at `/swapfile`, `swapon`, fstab entry
-  - Verify: `free -h` shows 4 GB swap, `cat /proc/sys/vm/swappiness` (leave default 60); `grep swap /etc/fstab` shows entry
-- [ ] **C4** — `fail2ban` package + `sshd` jail
-  - Verify: `systemctl is-active fail2ban` → `active`; `fail2ban-client status sshd` shows jail loaded
-- [ ] **C5** — Archive orphan `.api-dev.env` and `.frontend-dev.env` under `~/.kortix/archive/`
-  - Verify: files moved (not deleted); `docker compose config` still parses (no references to them); three containers still Up
+### Phase C — host hardening (reliability subset applied, security subset deferred)
+- [x] **C3** — 4 GB swap file at `/swapfile` + fstab. `free -h` shows 4.0 Gi swap. Zero lockout risk.
+- [x] **C2** — `/etc/docker/daemon.json` with log rotation + `live-restore: true`. `docker info` shows `Live Restore Enabled: true`; `systemctl reload docker` did not restart containers.
+- [x] **C5** — Archived orphan `.api-dev.env` / `.frontend-dev.env` under `~/.kortix/archive/`. `docker compose config` parses clean; all 3 containers still Up.
+- [~] **C1** — Caddy security headers: **deferred** (security-focused, partner prioritizing reliability/speed).
+- [~] **C4** — `fail2ban`: **deferred** (security-focused + SSH lockout risk).
 
 ### Phase E — onboarding (UI, requires test mode)
 - [ ] Complete in-UI setup wizard as `jadengarza@pm.me`
@@ -46,9 +41,21 @@ And take low-risk opportunities to harden the host per the audit's P2/P3 recomme
 - [ ] Seed credit rows
 
 ### Phase B — source fixes (separate worktree, TDD, detailed spec first)
-- [ ] Session reaper / circuit-breaker in `kortix-master` for stuck `busy` sessions
-- [ ] Bind account-scoped Pipedream integrations into sandbox OpenCode plugin registry at session start
-- [ ] Gate `[resolve-account] Stripe sync error` on billing flag (falls out of this phase)
+
+**Scope across all client surfaces** — the reaper is not just a core-kortix-master concern; it must surface cleanly in the mobile app too (per partner direction 2026-04-21).
+
+- [ ] **B.core** — Session reaper / circuit-breaker in `core/kortix-master/src/`
+  - Detect stuck `busy` sessions (threshold: idle > 60 s while `busy=true`)
+  - Force-abort offending sessions; emit event
+  - Circuit-breaker around `/session/:id/message`: if 3 consecutive 30 s timeouts, stop hitting OpenCode for N seconds
+  - Expose reaper state at `/kortix/reaper/status` (count of reaps, last reap time, open-circuit flag)
+- [ ] **B.api** — `apps/api/` surfaces reaper state in instance health so clients can render it
+- [ ] **B.web** — `apps/web/` + `apps/frontend/` sidebar status: replace "Unreachable Xs" badge with structured reaper state (e.g. "Recovering Xs — N stuck sessions cleared")
+- [ ] **B.mobile** — `apps/mobile/lib/platform/` + `lib/opencode/sync-store.ts` consumes the same reaper state; UI shows a calm recovery indicator instead of silent disconnect
+- [ ] **B.connectors** — Bind account-scoped Pipedream integrations into sandbox OpenCode plugin registry at session start (separate commit, in core)
+- [ ] **B.stripe** — Gate `[resolve-account] Stripe sync error` on billing flag (small; drops out of B.core work)
+
+**Delivery plan:** one PR per sub-phase (B.core first, then B.api+B.web+B.mobile together as the UI integration, then B.connectors, then B.stripe). TDD where the reaper logic has observable state transitions.
 
 ## Decisions log
 

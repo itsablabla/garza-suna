@@ -51,3 +51,71 @@ A restart right now would be preventive, not corrective. Applying `verify-before
 
 Status: **deferred (unneeded at this moment)**. Re-open if `Unreachable` badge returns before Phase B ships.
 
+---
+
+## 2026-04-21 — Phase C (host hardening, reliability subset)
+
+Per partner direction: reliability/speed focus, no lockout-risk changes. Deferred C1 (Caddy headers, security) and C4 (fail2ban, security + lockout risk).
+
+### C.3 — 4 GB swap file — DONE
+
+Ran `C3-swap.sh` on `ubuntu@83.228.213.100`.
+
+```
+Setting up swapspace version 1, size = 4 GiB (4294963200 bytes)
+UUID=3231d712-0910-408e-a1d2-eb6fb408ab87
+/swapfile none swap sw 0 0
+--- verification ---
+               total        used        free      shared  buff/cache   available
+Mem:            17Gi       4.2Gi       7.8Gi       517Mi       6.5Gi        13Gi
+Swap:          4.0Gi          0B       4.0Gi
+/swapfile none swap sw 0 0
+```
+
+Before: 0 B swap. After: 4 GB swap, 0 B used (expected — no memory pressure), fstab persisted.
+Status: **done + verified.** Containers still Up.
+
+### C.2 — /etc/docker/daemon.json — DONE
+
+```
+--- pre-state ---
+Logging Driver: json-file
+Live Restore Enabled: false
+
+--- post-state ---
+Logging Driver: json-file
+Live Restore Enabled: true
+
+--- effective daemon.json ---
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "50m", "max-file": "3" },
+  "live-restore": true
+}
+```
+
+`systemctl reload docker` did not restart any container — all three stayed Up (sandbox: Up About an hour, api: Up 2 hours, frontend: Up 2 hours). `live-restore: true` is now live; on next docker daemon restart event containers will continue running. Log rotation (`max-size: 50m`, `max-file: 3`) applies to new containers; existing container logs keep their current driver settings.
+Status: **done + verified.**
+
+### C.5 — Archive orphan dev .env files — DONE
+
+```
+archived: .api-dev.env
+archived: .frontend-dev.env
+--- verification ---
+docker compose config: OK
+NAMES                   STATUS
+kortix-hosted-sandbox   Up About an hour
+kortix-frontend-1       Up 2 hours
+kortix-kortix-api-1     Up 2 hours
+```
+
+Moved to `~/.kortix/archive/` with UTC timestamp suffix; reversible by `mv` back. `docker compose config` parses clean — files were indeed not referenced.
+Status: **done + verified.**
+
+### C.1 / C.4 — Deferred
+
+- C.1 (Caddy security headers) — security-focused, not reliability/speed. Re-open when security hardening becomes priority.
+- C.4 (fail2ban) — security-focused + SSH lockout risk. Re-open only with a known-good whitelist strategy.
+
+
