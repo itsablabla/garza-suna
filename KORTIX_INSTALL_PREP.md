@@ -9,7 +9,7 @@ This document captures the exact pre-install decisions and external system setup
 - IPv6: `2001:1600:18:200::3ef`
 - OS: Ubuntu 24.04 LTS
 - Recommended sandbox provider: `local_docker`
-- Recommended DB connection mode: `Direct` (VM has IPv6)
+- Recommended DB connection mode: `Session pooler` for this project (`aws-1-us-east-1.pooler.supabase.com:5432`, user `postgres.xwwkjguyihysjqvdwjau`)
 - Primary LLM provider: `OpenRouter`
 
 ## Why local_docker, not Daytona (for first install)
@@ -39,16 +39,22 @@ This document captures the exact pre-install decisions and external system setup
 - `SUPABASE_URL`: use the new project URL for ref `xwwkjguyihysjqvdwjau`
 - `SUPABASE_ANON_KEY`: captured from project API keys
 - `SUPABASE_SERVICE_ROLE_KEY`: captured from project API keys
-- `SUPABASE_JWT_SECRET`: captured from PostgREST config
-- `DATABASE_URL`: use **Direct** connection with the known DB password for the new project
+- `SUPABASE_JWT_SECRET`: provided separately during install
+- `DATABASE_URL`: the working production value uses the Supabase **session pooler** connection for this project
 
 ### DB guidance
-Because the Garza VM has IPv6, use direct connection rather than the IPv4 pooler fallback.
+Initial assumption was that the VM's IPv6 connectivity would make the direct connection the best choice.
+In practice, the direct endpoint for this project returned connection refusals from the VM during install, while the session pooler worked correctly.
 
-Direct pattern:
+Working production pattern:
 ```text
-postgresql://postgres:<DB_PASSWORD>@db.xwwkjguyihysjqvdwjau.supabase.co:5432/postgres
+postgresql://postgres.xwwkjguyihysjqvdwjau:<DB_PASSWORD>@aws-1-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require
 ```
+
+Other observed connection shapes from the Supabase Connect panel:
+- Direct: `db.xwwkjguyihysjqvdwjau.supabase.co:5432`, user `postgres`
+- Transaction pooler: `db.xwwkjguyihysjqvdwjau.supabase.co:6543`, user `postgres`
+- Session pooler: `aws-1-us-east-1.pooler.supabase.com:5432`, user `postgres.xwwkjguyihysjqvdwjau`
 
 ## Other required integrations gathered
 ### OpenRouter
@@ -69,11 +75,17 @@ postgresql://postgres:<DB_PASSWORD>@db.xwwkjguyihysjqvdwjau.supabase.co:5432/pos
 - Target AAAA record: `2001:1600:18:200::3ef`
 - DNS update attempted via Infomaniak API using documented zone-record endpoint.
 
-## Remaining inputs needed before install
-- SSH access to the Garza VM
-- Final owner email
-- Final owner password
-- If the VM should be fully reimaged, that likely must be done via Infomaniak UI (`Reset server`), since a destructive reset endpoint was not discovered via API
+## Fresh-VM install findings
+- SSH access to the Garza VM was verified and used successfully
+- Docker, `postgresql-client`, Caddy, and ufw were installed on the VM
+- The official installer completed, but its external-Supabase compose output was malformed on this version because it emitted a bare top-level `volumes:` block; that had to be patched manually before `docker compose` would start
+- Runtime was switched to the final public origin `https://super.garzaos.online`
+- Raw app ports were rebound to `127.0.0.1` and exposed publicly only through Caddy
+- TLS was issued successfully for `super.garzaos.online`
+- The application and `/v1/health` are now live over HTTPS
+- Final owner email is still needed for owner signup
+- Final owner password is still needed for owner signup
+- If the VM should ever be fully reimaged, that likely must be done via Infomaniak UI (`Reset server`), since a destructive reset endpoint was not discovered via API
 
 ## VM preparation checklist
 - Confirm VM is in the desired clean state
@@ -102,3 +114,4 @@ At minimum verify:
 ## Notes
 - Paid Supabase improves backup/durability posture compared with free tier.
 - Because DB access is restricted to the Garza VM IPs, installs or DB checks from any other IP will fail until the allow-list is broadened.
+- The upstream installer for `v0.8.44` is not fully production-complete for this external-Supabase path; it still assumes raw port exposure and required a manual compose fix plus reverse-proxy hardening.
