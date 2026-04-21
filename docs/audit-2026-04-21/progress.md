@@ -118,4 +118,91 @@ Status: **done + verified.**
 - C.1 (Caddy security headers) — security-focused, not reliability/speed. Re-open when security hardening becomes priority.
 - C.4 (fail2ban) — security-focused + SSH lockout risk. Re-open only with a known-good whitelist strategy.
 
+---
+
+## 2026-04-21 20:00 UTC — LIVE 502 INCIDENT + PR1 B.stripe open
+
+### Incident snapshot
+
+- **User-visible symptom:** 502 popup on dashboard at ~19:49 UTC
+- **Scope:** self-cleared by 19:52, no container restarts, no OOMs, all 3 containers Up 2h
+- **Caddy edge:** 157 `status:502 msg:"unexpected EOF"` on path `/v1/p/kortix-hosted-sandbox/8000/project/current` in the 10-min window; peak 127/min at 19:49
+- **kortix-api:** 866 `[resolve-account] Stripe sync error` log lines in same window (~87/min) — one per account resolution under dashboard poll load
+- **Root cause (confirmed):** `apps/api/src/shared/resolve-account.ts:22,53` calls `syncLegacySubscription()` unconditionally even though the container has `KORTIX_BILLING_INTERNAL_ENABLED=false`. Every poll triggers a failed DB query against the non-existent `basejump.billing_customers` table. Under concurrent dashboard polling the failed-query work saturates kortix-api's event loop and surfaces at the edge as upstream 502/EOFs.
+
+### PR1 — B.stripe (billing-gate)
+
+- **Branch:** `devin/1776801000-b-stripe-billing-gate` (separate from docs branch for independent revert)
+- **PR URL:** https://github.com/itsablabla/garza-suna/pull/1
+- **Diff:** +62 / -0 across `apps/api/src/shared/resolve-account.ts` (+8) and `apps/api/src/__tests__/unit-resolve-account.test.ts` (+54)
+- **Fix:** early-return from `syncLegacySubscription()` when `config.KORTIX_BILLING_INTERNAL_ENABLED === false`. Aligns with every other billing entry point in `apps/api/src/billing/*`.
+- **TDD:** red first (2 new tests failed against unmodified code) → green (all 4 tests pass after guard).
+- **Local verification:**
+  ```
+  bun test src/__tests__/unit-resolve-account.test.ts
+  → 4 pass / 0 fail / 19 expect() calls
+  ```
+- **CI:**
+  - Devin Review: "No Issues Found"
+  - Kilo Code Review: status "failed" (advisory AI review bot, not a test runner; logs not fetchable from agent tools — see PR comments for Kilo's output)
+  - Pre-existing typecheck errors on `main` (in credits.test.ts, webhooks.test.ts, e2e-preview-proxy.test.ts, e2e-sandbox-update-status.test.ts, etc.) are unchanged by this PR.
+- **Expected post-deploy verification on super.garzaos.online:**
+  ```
+  docker logs --since 5m kortix-api 2>&1 | grep -c 'resolve-account.*Stripe sync error'
+  → 0   (was ~435/5min)
+  ```
+- **Rollback:** `git revert de1300017ca65160061328e98f5426b8f29dab43` — zero schema/config changes, zero new env vars.
+
+Status: **PR open, awaiting partner review; merge + deploy pending approval.**
+
+---
+
+## 2026-04-21 20:05 UTC — B.connectors initial investigation
+
+Started in parallel with PR1 review. Goal: understand the sandbox-side MCP server binding so I can scope PR2.
+
+### What I found
+
+The Pipedream integration pipeline already wires account-side → sandbox-side, **but stops one hop short of OpenCode's MCP registry**:
+
+1. **Web/mobile UI → API** (`apps/api/src/integrations/routes.ts`):
+   - OAuth connect flow writes to Supabase `user_integrations` + `sandbox_integrations` link table
+   - `notifySandboxesConnectorSync()` POSTs to `${sandbox.baseUrl}/api/pipedream/connector-sync` for each linked sandbox
+
+2. **Sandbox handler** (`core/kortix-master/src/routes/pipedream.ts:566-600`):
+   - Receives `{ app, app_name }`
+   - Writes a row to SQLite at `/workspace/.kortix/kortix.db` → `connectors` table
+   - Does **NOT** write to `/workspace/.opencode/opencode.jsonc` `mcp.servers` section
+
+3. **OpenCode's `opencode.jsonc`** (`core/kortix-master/opencode/opencode.jsonc`):
+   - Base template has no `mcp` block at all
+   - No code path in core that binds the SQLite `connectors` table → `mcp.servers` in opencode.jsonc at session start
+
+### The gap (Root Cause #2 — B.connectors scope)
+
+When a session starts, OpenCode reads `/workspace/.opencode/opencode.jsonc` and loads whatever MCP servers are declared there. But:
+- Account-level Pipedream connectors live in Supabase and the sandbox's SQLite DB
+- Neither of those is ever materialized into `opencode.jsonc`'s `mcp.servers` object
+
+Result: what the user sees in the "MCP Servers" list depends on ephemeral in-memory registration (which can churn during recovery events), not the durable config. Hence the "2 servers, then 1 server, then 0" fluctuation in the screenshots.
+
+### Proposed shape of the fix (not yet implemented)
+
+A new idempotent step in the sandbox session-init sequence:
+
+1. Read all rows from `/workspace/.kortix/kortix.db` → `connectors` where `source='pipedream'`
+2. Synthesize an MCP server entry per row (local-stdio MCP talking to the `kpipedream` CLI with the right `--app` flag)
+3. Merge into `/workspace/.opencode/opencode.jsonc` under `mcp.servers` — preserve any user-authored entries, overwrite only auto-generated ones
+4. Trigger OpenCode config reload via existing `/instance/dispose` (hot reload, ~2s, already documented in runtime-reload.ts)
+
+This means:
+- No new API/network calls
+- No schema changes
+- One new module in `core/kortix-master/src/services/` (e.g., `mcp-registry-bind.ts`)
+- Gated on an env flag so rollback = flag off + restart kortix-master
+
+Full spec to follow as `docs/audit-2026-04-21/B-connectors-spec.md` before writing test code — same pattern as B-core-reaper-spec.md. Not proceeding to code until partner reviews the spec.
+
+Status: **investigation complete; spec pending; no code written.**
+
 
