@@ -304,6 +304,13 @@ RUN chmod +x /usr/local/bin/apt-persist
 COPY core/scripts/kortix-opencode-state /usr/local/bin/kortix-opencode-state
 RUN chmod +x /usr/local/bin/kortix-opencode-state
 
+# ── kortix-cli (wait_for_api, get_config, list_mcp, get_services, health) ───
+# Single entry point used by agent scripts to avoid the verify-fail-retry loop.
+# Baked into /usr/local/bin so it's available to every shell/agent session.
+COPY core/kortix-master/scripts/kortix-cli.ts /usr/local/lib/kortix-cli/kortix-cli.ts
+RUN printf '#!/bin/bash\nexec /opt/bun/bin/bun run /usr/local/lib/kortix-cli/kortix-cli.ts "$@"\n' > /usr/local/bin/kortix-cli && \
+    chmod +x /usr/local/bin/kortix-cli /usr/local/lib/kortix-cli/kortix-cli.ts
+
 # ── Docker-in-Docker readiness helper ───────────────────────────────────────
 # Polls `docker info` until dockerd is reachable. Use from anywhere that
 # needs to run `docker ...` commands early in the boot sequence.
