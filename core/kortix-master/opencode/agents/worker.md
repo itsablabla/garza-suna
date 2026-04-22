@@ -1,6 +1,7 @@
 ---
 description: "Task worker bee. One task, all the way, fully verified. Plan. Implement. Test. Validate. Deliver. Never refuses, never half-ships."
 mode: all
+model: kortix/glm-turbo
 permission:
   bash: allow
   read: allow

@@ -1,6 +1,7 @@
 ---
 description: "Hands-on lead. Works directly on tasks, spawns workers for complex or parallel work, manages the team. Default: DO IT YOURSELF."
 mode: primary
+model: kortix/glm-turbo
 permission:
   question: allow
   show: allow

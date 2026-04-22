@@ -1,6 +1,7 @@
 ---
 description: "Hardcore project manager / orchestrator. Receives full project context, decomposes it into tasks, spawns and coordinates workers end-to-end until the mission is done."
 mode: primary
+model: kortix/glm-turbo
 permission:
   question: allow
   show: allow
