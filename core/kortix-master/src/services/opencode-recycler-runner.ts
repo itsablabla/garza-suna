@@ -8,8 +8,15 @@
  *      status.type !== 'idle'.
  *   3. Feeds the tuple into recycler.observe().
  *   4. If recycler.shouldRecycle() returns true, fires
- *      serviceManager.requestRecovery('opencode-serve', 'recycler:idle-age')
- *      and marks the recycler.
+ *      serviceManager.restartService('opencode-serve') and marks the
+ *      recycler on success.
+ *
+ * IMPORTANT: we use restartService(), NOT requestRecovery(). requestRecovery
+ * short-circuits with "already healthy" when the service passes its health
+ * check — which a stale-but-not-yet-wedged opencode-serve always does. The
+ * whole point of this primitive is to restart a process that is currently
+ * healthy but approaching the wedge threshold, so we need an unconditional
+ * stop+start. (See Devin Review finding on PR #8.)
  *
  * Best-effort: a transient fetch error or missing snapshot just skips the
  * tick. The recycler's cooldown prevents thrash if the respawn itself is
@@ -22,6 +29,11 @@ import { OpenCodeRecycler, type RecyclerSnapshot } from './opencode-recycler'
 import { serviceManager } from './service-manager'
 import { config } from '../config'
 
+interface RestartResult {
+  ok: boolean
+  output?: string
+}
+
 interface OpenCodeSessionStatus {
   type?: string
 }
@@ -33,8 +45,13 @@ export interface RunnerOptions {
   minIntervalMs?: number
   fetchImpl?: typeof fetch
   now?: () => number
-  /** Overridable for tests. Default: serviceManager.requestRecovery. */
-  requestRecovery?: (id: string, reason: string) => Promise<unknown>
+  /**
+   * Overridable for tests. Default: serviceManager.restartService.
+   * Must perform an unconditional stop+start — NOT a healthcheck-gated
+   * recovery — because the recycler's whole purpose is to restart a
+   * currently-healthy process.
+   */
+  restartService?: (id: string) => Promise<RestartResult>
   /** Overridable for tests. Default: serviceManager.getService. */
   getServingSince?: () => Promise<number | null>
 }
@@ -44,7 +61,7 @@ export class OpenCodeRecyclerRunner {
   private readonly scanIntervalMs: number
   private readonly fetchImpl: typeof fetch
   private readonly recycler: OpenCodeRecycler
-  private readonly requestRecoveryFn: (id: string, reason: string) => Promise<unknown>
+  private readonly restartServiceFn: (id: string) => Promise<RestartResult>
   private readonly getServingSinceFn: () => Promise<number | null>
   private timer: ReturnType<typeof setInterval> | null = null
   private lastScanAt: number | null = null
@@ -60,8 +77,12 @@ export class OpenCodeRecyclerRunner {
       minIntervalMs: opts.minIntervalMs ?? config.KORTIX_OPENCODE_RECYCLER_MIN_INTERVAL_MS,
       now: opts.now,
     })
-    this.requestRecoveryFn =
-      opts.requestRecovery ?? ((id, reason) => serviceManager.requestRecovery(id, reason))
+    this.restartServiceFn =
+      opts.restartService ??
+      (async (id) => {
+        const r = await serviceManager.restartService(id)
+        return { ok: r.ok, output: r.output }
+      })
     this.getServingSinceFn =
       opts.getServingSince ??
       (async () => {
@@ -109,16 +130,21 @@ export class OpenCodeRecyclerRunner {
       const decision = this.recycler.shouldRecycle()
 
       if (decision.should) {
-        this.lastRecycleReason = decision.reason
-        const result = await this.requestRecoveryFn('opencode-serve', `recycler:${decision.reason}`)
-        // Only mark as recycled if the recovery call reported success OR was
-        // at least accepted (throttled counts as "we handed it off").
-        if (result && typeof result === 'object') {
+        this.lastRecycleReason = `recycler:${decision.reason}`
+        const result = await this.restartServiceFn('opencode-serve')
+        // Only enter cooldown when the restart actually succeeded. If it
+        // failed, leave `lastRecycleAt` null so the next tick can retry —
+        // otherwise a flaky respawn would hide behind a 1h cooldown while
+        // the wedge window opens.
+        if (result.ok) {
           this.recycler.markRecycled()
+          this.lastError = null
+        } else {
+          this.lastError = `restart failed: ${result.output ?? 'unknown'}`
         }
+      } else {
+        this.lastError = null
       }
-
-      this.lastError = null
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err)
     }

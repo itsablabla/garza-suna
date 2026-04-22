@@ -19,23 +19,23 @@ function mockFetch(map: Record<string, unknown>): typeof fetch {
 
 describe('OpenCodeRecyclerRunner', () => {
   it('skips recycle when opencode-serve snapshot has no startedAt', async () => {
-    const requestRecovery = mock(async () => ({ ok: true }))
+    const restartService = mock(async () => ({ ok: true }))
     const runner = new OpenCodeRecyclerRunner({
       maxAgeMs: 6 * HOUR,
       minIntervalMs: HOUR,
       scanIntervalMs: 60_000,
       getServingSince: async () => null,
       fetchImpl: mockFetch({ '/session/status': {} }),
-      requestRecovery,
+      restartService,
     })
     await runner.tick()
-    expect(requestRecovery).not.toHaveBeenCalled()
+    expect(restartService).not.toHaveBeenCalled()
     expect(runner.snapshot().lastError).toBeNull()
   })
 
   it('does not recycle when a session is non-idle', async () => {
     const now = Date.now()
-    const requestRecovery = mock(async () => ({ ok: true }))
+    const restartService = mock(async () => ({ ok: true }))
     const runner = new OpenCodeRecyclerRunner({
       maxAgeMs: 6 * HOUR,
       minIntervalMs: HOUR,
@@ -44,17 +44,17 @@ describe('OpenCodeRecyclerRunner', () => {
       fetchImpl: mockFetch({
         '/session/status': { s1: { type: 'generating' } },
       }),
-      requestRecovery,
+      restartService,
     })
     await runner.tick()
-    expect(requestRecovery).not.toHaveBeenCalled()
+    expect(restartService).not.toHaveBeenCalled()
     const snap = runner.snapshot()
     expect(snap.recycler.lastDecision?.should).toBe(false)
   })
 
   it('recycles when uptime exceeds maxAgeMs and all sessions idle', async () => {
     const now = Date.now()
-    const requestRecovery = mock(async () => ({ ok: true, output: 'respawned' }))
+    const restartService = mock(async () => ({ ok: true, output: 'respawned' }))
     const runner = new OpenCodeRecyclerRunner({
       maxAgeMs: 6 * HOUR,
       minIntervalMs: HOUR,
@@ -63,15 +63,37 @@ describe('OpenCodeRecyclerRunner', () => {
       fetchImpl: mockFetch({
         '/session/status': { s1: { type: 'idle' }, s2: { type: 'idle' } },
       }),
-      requestRecovery,
+      restartService,
     })
     await runner.tick()
-    expect(requestRecovery).toHaveBeenCalledTimes(1)
-    const [id, reason] = requestRecovery.mock.calls[0]
+    expect(restartService).toHaveBeenCalledTimes(1)
+    const [id] = restartService.mock.calls[0]
     expect(id).toBe('opencode-serve')
-    expect(reason).toMatch(/^recycler:/)
     const snap = runner.snapshot()
     expect(snap.recycler.lastRecycleAt).not.toBeNull()
+    expect(snap.lastRecycleReason).toMatch(/^recycler:/)
+  })
+
+  it('does NOT mark cooldown when restart reports failure (retries next tick)', async () => {
+    const now = Date.now()
+    const restartService = mock(async () => ({ ok: false, output: 'spawn EACCES' }))
+    const runner = new OpenCodeRecyclerRunner({
+      maxAgeMs: 6 * HOUR,
+      minIntervalMs: HOUR,
+      scanIntervalMs: 60_000,
+      getServingSince: async () => now - 7 * HOUR,
+      fetchImpl: mockFetch({
+        '/session/status': { s1: { type: 'idle' } },
+      }),
+      restartService,
+    })
+    await runner.tick()
+    expect(restartService).toHaveBeenCalledTimes(1)
+    const snap = runner.snapshot()
+    // Cooldown NOT set → next tick would try again. Critical: flaky respawn
+    // must not hide behind a 1h cooldown while the wedge window opens.
+    expect(snap.recycler.lastRecycleAt).toBeNull()
+    expect(snap.lastError).toContain('spawn EACCES')
   })
 
   it('records fetch errors on the snapshot but does not crash', async () => {
@@ -82,7 +104,7 @@ describe('OpenCodeRecyclerRunner', () => {
       scanIntervalMs: 60_000,
       getServingSince: async () => now - 7 * HOUR,
       fetchImpl: (() => { throw new Error('connect ECONNREFUSED') }) as unknown as typeof fetch,
-      requestRecovery: async () => ({ ok: true }),
+      restartService: async () => ({ ok: true }),
     })
     await runner.tick()
     const snap = runner.snapshot()
