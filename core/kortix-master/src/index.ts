@@ -38,6 +38,7 @@ import { tasksRouter } from './routes/tasks'
 import { serviceManager } from './services/service-manager'
 import { openCodeBreaker } from './services/opencode-breaker'
 import { getStuckSessionRunner } from './services/stuck-session-runner'
+import { getOpenCodeRecyclerRunner } from './services/opencode-recycler-runner'
 import { config } from './config'
 import { loadBootstrapEnv, normalizeBootstrapAuthAliases, saveBootstrapEnv } from './services/bootstrap-env'
 import { HealthResponse, PortsResponse } from './schemas/common'
@@ -152,6 +153,22 @@ if (config.KORTIX_SESSION_REAPER_ENABLED) {
     )
   } catch (err) {
     console.error('[Kortix Master] stuck-session reaper start error:', err)
+  }
+}
+
+// ─── B.core: prophylactic OpenCode recycler ─────────────────────────────────
+// Preventive counterpart to the reactive circuit-breaker + watchdog. When
+// opencode-serve has been running > maxAgeMs AND no non-idle sessions exist,
+// respawn it proactively — mimics the hosted Kortix sandbox's short-lived-
+// process lifecycle without requiring per-session sandbox infra. Default OFF.
+if (config.KORTIX_OPENCODE_RECYCLER_ENABLED) {
+  try {
+    getOpenCodeRecyclerRunner().start()
+    console.log(
+      `[Kortix Master] opencode recycler started (maxAgeMs=${config.KORTIX_OPENCODE_RECYCLER_MAX_AGE_MS}, minIntervalMs=${config.KORTIX_OPENCODE_RECYCLER_MIN_INTERVAL_MS}, scanMs=${config.KORTIX_OPENCODE_RECYCLER_SCAN_INTERVAL_MS})`,
+    )
+  } catch (err) {
+    console.error('[Kortix Master] opencode recycler start error:', err)
   }
 }
 
@@ -357,6 +374,9 @@ app.get('/kortix/health',
       },
       sessionReaper: config.KORTIX_SESSION_REAPER_ENABLED
         ? getStuckSessionRunner().snapshot()
+        : { enabled: false },
+      recycler: config.KORTIX_OPENCODE_RECYCLER_ENABLED
+        ? getOpenCodeRecyclerRunner().snapshot()
         : { enabled: false },
       recovering:
         config.KORTIX_CIRCUIT_BREAKER_ENABLED && breakerSnap.state !== 'closed',
