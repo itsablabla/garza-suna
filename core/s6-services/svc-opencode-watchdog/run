@@ -1,0 +1,131 @@
+#!/usr/bin/with-contenv bash
+# svc-opencode-watchdog — event-loop-isolated recovery for OpenCode wedges.
+#
+# Runs outside of kortix-master so it cannot be starved by the same event-loop
+# stall that causes the OpenCode wedge class (sst/opencode#17628 — SSE heartbeat
+# writes leak CLOSE_WAIT sockets, the event loop freezes, port stays bound but
+# HTTP becomes unresponsive).
+#
+# Strategy:
+#   - Poll http://127.0.0.1:4096/app every POLL_INTERVAL_S seconds.
+#   - A probe fails if curl returns non-2xx or times out in PROBE_TIMEOUT_S.
+#     (Against an SIGSTOPped peer curl hangs the full probe timeout, so
+#     each loop tick takes up to POLL_INTERVAL_S + PROBE_TIMEOUT_S.)
+#   - After FAIL_THRESHOLD consecutive failures, SIGKILL the opencode-kortix
+#     process matching `opencode serve --port 4096`. kortix-master's in-process
+#     ServiceManager will detect the process absence via its processPatterns
+#     watcher and respawn within ~3s (restartDelayMs).
+#   - Defaults (5s poll + 3s probe timeout + 3 failures) give ~24s worst-case
+#     detection + ~15-18s respawn/boot = ~40s end-to-end recovery. Validated
+#     against live prod SIGSTOP injection.
+#   - Enforce a COOLDOWN_S delay between kills so we never flap.
+#   - Log every state transition (probe result, kill decision, cooldown gate)
+#     to stderr so `docker logs kortix-hosted-sandbox | grep opencode-watchdog`
+#     is actionable.
+#
+# This is the belt-and-suspenders layer beneath kortix-master's HTTP health
+# check (see service-manager.ts:273). The in-process watchdog handles the fast
+# path (<10s recovery); this longrun handles the case where the in-process
+# watchdog itself is starved.
+
+set -u
+
+# ── tunables ────────────────────────────────────────────────────────────────
+POLL_INTERVAL_S="${KORTIX_WATCHDOG_POLL_INTERVAL_S:-5}"
+PROBE_TIMEOUT_S="${KORTIX_WATCHDOG_PROBE_TIMEOUT_S:-3}"
+FAIL_THRESHOLD="${KORTIX_WATCHDOG_FAIL_THRESHOLD:-3}"
+COOLDOWN_S="${KORTIX_WATCHDOG_COOLDOWN_S:-60}"
+STARTUP_GRACE_S="${KORTIX_WATCHDOG_STARTUP_GRACE_S:-30}"
+OPENCODE_PORT="${OPENCODE_PORT:-4096}"
+OPENCODE_HEALTH_PATH="${KORTIX_WATCHDOG_HEALTH_PATH:-/app}"
+
+# Matches both `node /usr/bin/opencode serve --port 4096` (the Node wrapper
+# launched by run-opencode-serve.sh) AND `/usr/local/bin/opencode-kortix serve
+# --port 4096` (the single-file binary the wrapper execs into). Using `.*`
+# between `opencode` and `serve` intentionally — pgrep -f treats this as BRE.
+OPENCODE_PATTERN="${KORTIX_WATCHDOG_PROCESS_PATTERN:-opencode.*serve --port ${OPENCODE_PORT}}"
+
+# KORTIX_WATCHDOG_ENABLED=false disables the watchdog entirely — useful if
+# someone wants to revert to pre-PR behavior without rebuilding the image.
+if [ "${KORTIX_WATCHDOG_ENABLED:-true}" != "true" ]; then
+  echo "[opencode-watchdog] disabled via KORTIX_WATCHDOG_ENABLED=${KORTIX_WATCHDOG_ENABLED:-}" >&2
+  exec sleep infinity
+fi
+
+log() {
+  # ISO-8601 timestamp + fixed prefix so log lines are easy to filter.
+  printf '[%s] [opencode-watchdog] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2
+}
+
+probe() {
+  # Returns 0 if OpenCode HTTP responds 2xx within PROBE_TIMEOUT_S, else 1.
+  # We intentionally accept any 2xx — /app currently returns 200 but we don't
+  # want to tie the watchdog to a specific response body.
+  local code
+  code="$(
+    curl -sS -o /dev/null -w '%{http_code}' \
+      --max-time "${PROBE_TIMEOUT_S}" \
+      --connect-timeout "${PROBE_TIMEOUT_S}" \
+      "http://127.0.0.1:${OPENCODE_PORT}${OPENCODE_HEALTH_PATH}" 2>/dev/null || echo "000"
+  )"
+  case "${code}" in
+    2*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+kill_opencode() {
+  # SIGKILL every process matching the OpenCode pattern. SIGTERM is skipped
+  # on purpose — the wedge class specifically has a frozen event loop, so the
+  # process cannot respond to SIGTERM within any useful window. ServiceManager
+  # will respawn via processPatterns detection (restartDelayMs=3000).
+  local pids
+  pids="$(pgrep -f -- "${OPENCODE_PATTERN}" 2>/dev/null || true)"
+  if [ -z "${pids}" ]; then
+    log "kill skipped — no process matched pattern='${OPENCODE_PATTERN}'"
+    return 1
+  fi
+  log "killing wedged opencode pids='${pids}' pattern='${OPENCODE_PATTERN}'"
+  # shellcheck disable=SC2086
+  kill -KILL ${pids} 2>/dev/null || true
+  return 0
+}
+
+# ── main loop ───────────────────────────────────────────────────────────────
+log "starting pollIntervalS=${POLL_INTERVAL_S} probeTimeoutS=${PROBE_TIMEOUT_S} failThreshold=${FAIL_THRESHOLD} cooldownS=${COOLDOWN_S} startupGraceS=${STARTUP_GRACE_S} port=${OPENCODE_PORT} path=${OPENCODE_HEALTH_PATH}"
+
+# Grace period: don't poll until OpenCode has had a chance to start.
+# The kortix-master service starts opencode-serve ~a second after boot, and
+# opencode itself needs ~10s to be responsive.
+sleep "${STARTUP_GRACE_S}"
+
+consecutive_failures=0
+last_kill_epoch=0
+
+while true; do
+  if probe; then
+    if [ "${consecutive_failures}" -gt 0 ]; then
+      log "recovered after failures=${consecutive_failures}"
+    fi
+    consecutive_failures=0
+  else
+    consecutive_failures=$((consecutive_failures + 1))
+    log "probe failed consecutive=${consecutive_failures} threshold=${FAIL_THRESHOLD}"
+
+    if [ "${consecutive_failures}" -ge "${FAIL_THRESHOLD}" ]; then
+      now_epoch="$(date -u +%s)"
+      since_last_kill=$((now_epoch - last_kill_epoch))
+      if [ "${since_last_kill}" -lt "${COOLDOWN_S}" ]; then
+        log "kill suppressed — cooldown active sinceLastKillS=${since_last_kill} cooldownS=${COOLDOWN_S}"
+      else
+        if kill_opencode; then
+          last_kill_epoch="${now_epoch}"
+          # Reset the failure counter so we give ServiceManager a full
+          # threshold window to respawn before we kill again.
+          consecutive_failures=0
+        fi
+      fi
+    fi
+  fi
+  sleep "${POLL_INTERVAL_S}"
+done

@@ -274,6 +274,7 @@ ENV KORTIX_WORKSPACE=/workspace
 # ── Services (s6-rc.d longrun) ──────────────────────────────────────────────
 COPY core/s6-services/ /etc/s6-overlay/s6-rc.d/
 RUN for svc in svc-kortix-master svc-opencode-serve svc-opencode-state-sync \
+        svc-opencode-watchdog \
         svc-chromium-persistent svc-agent-browser-session svc-agent-browser-viewer \
         svc-static-web svc-lss-sync svc-sshd svc-docker; do \
         touch "/etc/s6-overlay/s6-rc.d/user/contents.d/${svc}"; \
