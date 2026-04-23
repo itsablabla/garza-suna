@@ -262,7 +262,15 @@ const BUILTIN_SERVICES: RegisteredServiceSpec[] = [
     restartDelayMs: 3000,
     s6ServiceName: null,
     processPatterns: ["opencode serve --port 4096"],
-    healthCheck: { type: "tcp", timeoutMs: 2000 },
+    // HTTP-level probe instead of TCP: the OpenCode wedge class
+    // (sst/opencode#17628, SSE heartbeat leak → frozen event loop) leaves
+    // port 4096 bound but the HTTP server unresponsive. A TCP connect returns
+    // OK and the watchdog thinks the service is healthy, so requestRecovery()
+    // short-circuits on "already healthy" and never restarts. Probing /app
+    // over HTTP (3s timeout) actually exercises the event loop, so wedges
+    // are detected and the watchdog + proxy.ts recovery path can fire
+    // stopSpawnService + startSpawnService — ServiceManager's own respawn.
+    healthCheck: { type: "http", path: "/app", timeoutMs: 3000 },
     createdAt: "",
     updatedAt: "",
   },
@@ -1232,10 +1240,15 @@ export class ServiceManager {
       return { ok: true, output: "already running", service: { ...state } };
     }
 
-    if (
-      spec.port &&
-      (await probeServicePort(spec, spec.healthCheck.timeoutMs || 1500))
-    ) {
+    // Reclamation gate MUST be TCP-level, not health-check-level. If the
+    // existing process is wedged (e.g. opencode-serve with a frozen event
+    // loop — sst/opencode#17628), an HTTP health probe returns false even
+    // though the port is still bound. Skipping reclamation here and then
+    // spawning a new process causes EADDRINUSE, and the subsequent
+    // waitForPort (TCP) gives a false-positive on the still-bound old
+    // process. Using probeTcpPort ensures any process holding the port —
+    // healthy or wedged — is reclaimed before the new spawn.
+    if (spec.port && (await probeTcpPort(spec.port, 1500))) {
       const persistedPid = this.readPidFile(spec.id);
       const adoptedPid =
         (spec.processPatterns.length > 0
