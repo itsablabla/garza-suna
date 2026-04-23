@@ -16,6 +16,25 @@
     "explore": { "disable": true }
   },
   "provider": {
+    // Anthropic — baked in so `anthropic/claude-sonnet-4-6` remains a valid
+    // provider reference across image updates. The previous behaviour of
+    // adding this via `PATCH /config` at runtime did not survive image swaps
+    // because /ephemeral/ is replaced on update. Keeping the provider here
+    // keeps the user's selected model resolvable without a re-patch.
+    "anthropic": {
+      "npm": "@ai-sdk/anthropic",
+      "env": ["ANTHROPIC_API_KEY"],
+      "options": {
+        "apiKey": "{env:ANTHROPIC_API_KEY}"
+      },
+      "models": {
+        "claude-sonnet-4-6": {
+          "name": "Claude Sonnet 4.6",
+          "id": "claude-sonnet-4-6",
+          "family": "anthropic"
+        }
+      }
+    },
     "kortix-yolo": {
       "npm": "@ai-sdk/anthropic",
       "env": ["KORTIX_YOLO_API_KEY", "KORTIX_YOLO_URL"],
@@ -80,11 +99,66 @@
     "./plugin/opencode-caveman-plugin/opencode-caveman-plugin.ts"
   ],
   "mcp": {
+    // ── Base MCP set ───────────────────────────────────────────────────────
+    // Every agent session starts with these attached so skills don't have to
+    // pay the cost of bootstrapping them per-session. Additional MCPs are
+    // expected to be attached on demand by the skill-activation layer.
+    // Tokens come from /persistent/secrets/ via `97-secrets-to-s6-env.sh`.
+    // URLs for self-hosted services default to the garzaos.cloud endpoints
+    // but can be overridden per-install via the `_URL` env vars.
     "context7": {
       "type": "remote",
       "url": "https://mcp.context7.com/mcp",
       "headers": {
         "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"
+      },
+      "enabled": true
+    },
+    "composio": {
+      "type": "remote",
+      "url": "https://connect.composio.dev/mcp",
+      "headers": {
+        "x-consumer-api-key": "{env:COMPOSIO_MCP_API_KEY}"
+      },
+      "enabled": true
+    },
+    "firecrawl": {
+      "type": "remote",
+      "url": "{env:FIRECRAWL_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer {env:FIRECRAWL_API_KEY}"
+      },
+      "enabled": true
+    },
+    "tavily": {
+      "type": "remote",
+      "url": "{env:TAVILY_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer {env:TAVILY_API_KEY}"
+      },
+      "enabled": true
+    },
+    "proton": {
+      "type": "remote",
+      "url": "https://protonmail.garzaos.cloud/mcp",
+      "headers": {
+        "Authorization": "Bearer {env:PROTONMAIL_MCP_TOKEN}"
+      },
+      "enabled": true
+    },
+    "bitwarden": {
+      "type": "remote",
+      "url": "{env:VAULT_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer {env:VAULT_MCP_BEARER_TOKEN}"
+      },
+      "enabled": true
+    },
+    "beeper": {
+      "type": "remote",
+      "url": "{env:BEEPER_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer {env:BEEPER_MCP_TOKEN}"
       },
       "enabled": true
     }
