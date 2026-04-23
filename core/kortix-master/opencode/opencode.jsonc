@@ -61,6 +61,58 @@
         }
       }
     },
+    // Featherless — uncensored / abliterated / ERP-oriented models. Mirrors
+    // what hosted kortix.com exposes under its `featherless` provider. These
+    // are the steady-state set for adult / roleplay / safety-bypass use
+    // cases; base coding / assistant work should keep using `kortix/*` or
+    // `anthropic/*`. Provider is OpenAI-compatible at api.featherless.ai/v1.
+    "featherless": {
+      "npm": "@ai-sdk/openai-compatible",
+      "env": ["FEATHERLESS_API_KEY"],
+      "options": {
+        "baseURL": "https://api.featherless.ai/v1",
+        "apiKey": "{env:FEATHERLESS_API_KEY}"
+      },
+      "models": {
+        "dphn/Dolphin-Mistral-24B-Venice-Edition": { "name": "Dolphin Mistral 24B Venice (Uncensored)", "id": "dphn/Dolphin-Mistral-24B-Venice-Edition", "family": "featherless" },
+        "huihui-ai/Llama-3.3-70B-Instruct-abliterated": { "name": "Llama 3.3 70B Abliterated", "id": "huihui-ai/Llama-3.3-70B-Instruct-abliterated", "family": "featherless" },
+        "huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated": { "name": "DeepSeek R1 70B Abliterated", "id": "huihui-ai/DeepSeek-R1-Distill-Llama-70B-abliterated", "family": "featherless" },
+        "zetasepic/Qwen2.5-72B-Instruct-abliterated": { "name": "Qwen 2.5 72B Abliterated", "id": "zetasepic/Qwen2.5-72B-Instruct-abliterated", "family": "featherless" },
+        "mlabonne/Hermes-3-Llama-3.1-70B-lorablated": { "name": "Hermes 3 70B Lorablated", "id": "mlabonne/Hermes-3-Llama-3.1-70B-lorablated", "family": "featherless" },
+        "NousResearch/Hermes-4-70B": { "name": "Hermes 4 70B", "id": "NousResearch/Hermes-4-70B", "family": "featherless" },
+        "sh0ck0r/L3.3-70B-Euryale-v2.3-heretic": { "name": "Euryale v2.3 Heretic 70B", "id": "sh0ck0r/L3.3-70B-Euryale-v2.3-heretic", "family": "featherless" },
+        "sh0ck0r/Forgotten-Safeword-70B-v5.0-heretic": { "name": "Forgotten Safeword 70B", "id": "sh0ck0r/Forgotten-Safeword-70B-v5.0-heretic", "family": "featherless" },
+        "sh0ck0r/L3.3-MS-Nevoria-70b-heretic2": { "name": "Nevoria 70B Heretic2", "id": "sh0ck0r/L3.3-MS-Nevoria-70b-heretic2", "family": "featherless" },
+        "Sao10K/L3.3-70B-Euryale-v2.3": { "name": "Euryale v2.3 70B", "id": "Sao10K/L3.3-70B-Euryale-v2.3", "family": "featherless" },
+        "Sao10K/32B-Qwen2.5-Kunou-v1": { "name": "Kunou 32B", "id": "Sao10K/32B-Qwen2.5-Kunou-v1", "family": "featherless" },
+        "NeverSleep/Lumimaid-v0.2-70B": { "name": "Lumimaid v0.2 70B", "id": "NeverSleep/Lumimaid-v0.2-70B", "family": "featherless" },
+        "NeverSleep/Lumimaid-v0.2-12B": { "name": "Lumimaid v0.2 12B", "id": "NeverSleep/Lumimaid-v0.2-12B", "family": "featherless" },
+        "openerotica/writing-roleplay-20k-context-nemo-12b-v1.0": { "name": "OpenErotica Nemo 12B", "id": "openerotica/writing-roleplay-20k-context-nemo-12b-v1.0", "family": "featherless" },
+        "CrucibleLab/L3.3-Dark-Ages-70b-v0.1": { "name": "Dark Ages 70B", "id": "CrucibleLab/L3.3-Dark-Ages-70b-v0.1", "family": "featherless" },
+        "ArliAI/QwQ-32B-ArliAI-RpR-v4": { "name": "ArliAI RpR v4 32B", "id": "ArliAI/QwQ-32B-ArliAI-RpR-v4", "family": "featherless" }
+      }
+    },
+    // OpenRouter — single-entry carve-out for the uncensored Dolphin Venice
+    // free model. The broader OpenRouter catalog is intentionally not mirrored
+    // here; the `kortix` router already proxies most popular OpenRouter models
+    // with cost accounting. This provider exists so adult/roleplay workflows
+    // have a zero-cost fallback when Featherless auth is unavailable.
+    "openrouter": {
+      "npm": "@openrouter/ai-sdk-provider",
+      "env": ["OPENROUTER_API_KEY"],
+      "options": {
+        "apiKey": "{env:OPENROUTER_API_KEY}"
+      },
+      "models": {
+        "cognitivecomputations/dolphin-mistral-24b-venice-edition:free": {
+          "name": "Dolphin Mistral 24B Venice (free, uncensored)",
+          "id": "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+          "family": "openrouter",
+          "cost": { "input": 0, "output": 0 },
+          "limit": { "context": 32768, "output": 8192 }
+        }
+      }
+    },
     "kortix": {
       "npm": "@ai-sdk/openai-compatible",
       "env": ["KORTIX_TOKEN", "KORTIX_API_URL"],
