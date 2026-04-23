@@ -870,6 +870,15 @@ export class LocalDockerProvider implements SandboxProvider {
       'REPLICATE_API_URL',
       'SERPER_API_URL',
       'FIRECRAWL_API_URL',
+      // B.core recovery flags — set explicitly below so the sandbox .env
+      // file cannot silently override the autonomous-always-on defaults.
+      'KORTIX_CIRCUIT_BREAKER_ENABLED',
+      'KORTIX_CIRCUIT_BREAKER_FAILURE_THRESHOLD',
+      'KORTIX_CIRCUIT_BREAKER_COOLDOWN_MS',
+      'KORTIX_SESSION_REAPER_ENABLED',
+      'KORTIX_SESSION_IDLE_MS',
+      'KORTIX_SESSION_MIN_AGE_MS',
+      'KORTIX_SESSION_SCAN_INTERVAL_MS',
     ]);
 
     const filteredSandboxEnv = sandboxEnvVars.filter((entry) => {
@@ -918,6 +927,20 @@ export class LocalDockerProvider implements SandboxProvider {
       ...(config.KORTIX_LOCAL_IMAGES ? ['KORTIX_LOCAL_SOURCE=1'] : []),
       `ENV_MODE=${config.KORTIX_BILLING_INTERNAL_ENABLED ? 'cloud' : 'local'}`,
       `CORS_ALLOWED_ORIGINS=${[config.FRONTEND_URL, config.KORTIX_URL].filter(Boolean).join(',')}`,
+      // ── B.core recovery ────────────────────────────────────────────────────
+      // Circuit-breaker + stuck-session reaper keep the autonomous-always-on
+      // contract: agents must not appear "Interrupted" when the upstream
+      // OpenCode proxy wedges. Flags live in kortix-master/src/config.ts;
+      // they default OFF there so the image stays usable without these vars,
+      // but every sandbox launched through this provider should have recovery
+      // on. Operators can override via process.env to disable per-environment.
+      `KORTIX_CIRCUIT_BREAKER_ENABLED=${process.env.KORTIX_CIRCUIT_BREAKER_ENABLED ?? 'true'}`,
+      `KORTIX_CIRCUIT_BREAKER_FAILURE_THRESHOLD=${process.env.KORTIX_CIRCUIT_BREAKER_FAILURE_THRESHOLD ?? '5'}`,
+      `KORTIX_CIRCUIT_BREAKER_COOLDOWN_MS=${process.env.KORTIX_CIRCUIT_BREAKER_COOLDOWN_MS ?? '15000'}`,
+      `KORTIX_SESSION_REAPER_ENABLED=${process.env.KORTIX_SESSION_REAPER_ENABLED ?? 'true'}`,
+      `KORTIX_SESSION_IDLE_MS=${process.env.KORTIX_SESSION_IDLE_MS ?? '600000'}`,
+      `KORTIX_SESSION_MIN_AGE_MS=${process.env.KORTIX_SESSION_MIN_AGE_MS ?? '60000'}`,
+      `KORTIX_SESSION_SCAN_INTERVAL_MS=${process.env.KORTIX_SESSION_SCAN_INTERVAL_MS ?? '30000'}`,
       ...filteredSandboxEnv,
     ];
 
