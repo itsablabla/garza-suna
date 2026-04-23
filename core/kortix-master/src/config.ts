@@ -40,16 +40,17 @@ export const config = {
   // Circuit-breaker for the OpenCode proxy. When the upstream emits N consecutive
   // transient failures (timeout / connection refused / 5xx on non-file-status
   // paths) the breaker trips open and subsequent calls fast-fail with 503
-  // "recovering" instead of the caller seeing 30s hangs / 502s. Default OFF
-  // until verified on prod; flip to 'true' in ~/.kortix/.env on the host.
-  KORTIX_CIRCUIT_BREAKER_ENABLED: process.env.KORTIX_CIRCUIT_BREAKER_ENABLED === 'true',
+  // "recovering" instead of the caller seeing 30s hangs / 502s. Defaults ON
+  // — set KORTIX_CIRCUIT_BREAKER_ENABLED=false in ~/.kortix/.env to opt out.
+  KORTIX_CIRCUIT_BREAKER_ENABLED: process.env.KORTIX_CIRCUIT_BREAKER_ENABLED !== 'false',
   KORTIX_CIRCUIT_BREAKER_FAILURE_THRESHOLD: parseInt(process.env.KORTIX_CIRCUIT_BREAKER_FAILURE_THRESHOLD || '5'),
   KORTIX_CIRCUIT_BREAKER_COOLDOWN_MS: parseInt(process.env.KORTIX_CIRCUIT_BREAKER_COOLDOWN_MS || '15000'),
 
   // Stuck-session reaper. Activity-based: a session is only flagged when it has
   // been NON-idle AND emitted zero observable activity for idleMs AND is older
-  // than minAgeMs AND is NOT marked noReap in session metadata. Default OFF.
-  KORTIX_SESSION_REAPER_ENABLED: process.env.KORTIX_SESSION_REAPER_ENABLED === 'true',
+  // than minAgeMs AND is NOT marked noReap in session metadata. Defaults ON
+  // — set KORTIX_SESSION_REAPER_ENABLED=false in ~/.kortix/.env to opt out.
+  KORTIX_SESSION_REAPER_ENABLED: process.env.KORTIX_SESSION_REAPER_ENABLED !== 'false',
   KORTIX_SESSION_IDLE_MS: parseInt(process.env.KORTIX_SESSION_IDLE_MS || '600000'),
   KORTIX_SESSION_MIN_AGE_MS: parseInt(process.env.KORTIX_SESSION_MIN_AGE_MS || '60000'),
   KORTIX_SESSION_SCAN_INTERVAL_MS: parseInt(process.env.KORTIX_SESSION_SCAN_INTERVAL_MS || '30000'),
@@ -60,9 +61,10 @@ export const config = {
   // state that eventually deadlocks. This primitive mimics the hosted
   // lifecycle by proactively respawning opencode-serve once it has been
   // running > maxAgeMs AND there are zero non-idle sessions. Always gated
-  // on idleness — never interrupts a live stream. Default OFF so prod can
-  // observe the ticker's snapshot output before flipping the switch.
-  KORTIX_OPENCODE_RECYCLER_ENABLED: process.env.KORTIX_OPENCODE_RECYCLER_ENABLED === 'true',
+  // on idleness — never interrupts a live stream. Defaults ON; the recycler
+  // only fires when there are zero active sessions so it can't interrupt work.
+  // Set KORTIX_OPENCODE_RECYCLER_ENABLED=false in ~/.kortix/.env to opt out.
+  KORTIX_OPENCODE_RECYCLER_ENABLED: process.env.KORTIX_OPENCODE_RECYCLER_ENABLED !== 'false',
   KORTIX_OPENCODE_RECYCLER_MAX_AGE_MS: parseInt(process.env.KORTIX_OPENCODE_RECYCLER_MAX_AGE_MS || '21600000'), // 6h
   KORTIX_OPENCODE_RECYCLER_MIN_INTERVAL_MS: parseInt(process.env.KORTIX_OPENCODE_RECYCLER_MIN_INTERVAL_MS || '3600000'), // 1h
   KORTIX_OPENCODE_RECYCLER_SCAN_INTERVAL_MS: parseInt(process.env.KORTIX_OPENCODE_RECYCLER_SCAN_INTERVAL_MS || '60000'), // 1min
