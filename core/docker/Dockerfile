@@ -383,6 +383,19 @@ RUN set -eo pipefail && echo "[docker] Building sandbox runtime v${SANDBOX_VERSI
     command -v ocx >/dev/null && \
     echo "[docker] Global binaries: opencode=$(opencode --version 2>/dev/null || echo '?'), agent-browser, ocx" && \
     \
+    # ── 6b. OpenCode provider deps — `@ai-sdk/openai-compatible` powers the \
+    # `featherless` provider (16 uncensored/abliterated models) and \
+    # `@openrouter/ai-sdk-provider` powers the carve-out OpenRouter provider. \
+    # opencode resolves provider npm packages from its own install dir \
+    # (/usr/lib/node_modules/opencode-ai/node_modules/), so installing them \
+    # here makes the providers load at runtime without network access. \
+    # Without this the provider blocks in opencode.jsonc are silently dropped. \
+    (cd "$(npm root -g)/opencode-ai" && \
+      npm install --no-audit --no-fund --no-save \
+        "@ai-sdk/openai-compatible@^2" \
+        "@openrouter/ai-sdk-provider@^2" 2>&1) && \
+    echo "[docker] OpenCode provider deps installed: @ai-sdk/openai-compatible, @openrouter/ai-sdk-provider" && \
+    \
     # ── 7. Binary patches (MUST run after npm install -g opencode-ai) ── \
     bash /ephemeral/kortix-master/opencode/patches/apply.sh && \
     \
