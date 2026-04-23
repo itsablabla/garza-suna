@@ -54,6 +54,19 @@ export const config = {
   KORTIX_SESSION_MIN_AGE_MS: parseInt(process.env.KORTIX_SESSION_MIN_AGE_MS || '60000'),
   KORTIX_SESSION_SCAN_INTERVAL_MS: parseInt(process.env.KORTIX_SESSION_SCAN_INTERVAL_MS || '30000'),
 
+  // Prophylactic OpenCode recycler. The hosted Kortix sandbox doesn't wedge
+  // because each project sandbox is short-lived — spun up on demand, torn
+  // down when idle. Self-hosted runs opencode-serve for hours, accumulating
+  // state that eventually deadlocks. This primitive mimics the hosted
+  // lifecycle by proactively respawning opencode-serve once it has been
+  // running > maxAgeMs AND there are zero non-idle sessions. Always gated
+  // on idleness — never interrupts a live stream. Default OFF so prod can
+  // observe the ticker's snapshot output before flipping the switch.
+  KORTIX_OPENCODE_RECYCLER_ENABLED: process.env.KORTIX_OPENCODE_RECYCLER_ENABLED === 'true',
+  KORTIX_OPENCODE_RECYCLER_MAX_AGE_MS: parseInt(process.env.KORTIX_OPENCODE_RECYCLER_MAX_AGE_MS || '21600000'), // 6h
+  KORTIX_OPENCODE_RECYCLER_MIN_INTERVAL_MS: parseInt(process.env.KORTIX_OPENCODE_RECYCLER_MIN_INTERVAL_MS || '3600000'), // 1h
+  KORTIX_OPENCODE_RECYCLER_SCAN_INTERVAL_MS: parseInt(process.env.KORTIX_OPENCODE_RECYCLER_SCAN_INTERVAL_MS || '60000'), // 1min
+
   // Secret storage
   SECRET_FILE_PATH: process.env.SECRET_FILE_PATH || `${process.env.KORTIX_PERSISTENT_ROOT || '/persistent'}/secrets/.secrets.json`,
   SALT_FILE_PATH: process.env.SALT_FILE_PATH || `${process.env.KORTIX_PERSISTENT_ROOT || '/persistent'}/secrets/.salt`,
