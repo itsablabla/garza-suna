@@ -7,6 +7,12 @@
   "autoupdate": false,
   "disabled_providers": ["opencode"],
   "default_agent": "general",
+  // Default model for every agent session. Pinned to GLM-5 Turbo via the
+  // `kortix` router — 202k context, much cheaper than Claude Sonnet, and
+  // large-context so the "max context 32768" overflow class is structurally
+  // impossible. Per-agent overrides (see ./agents/*.md) can select a
+  // different model without touching this default.
+  "model": "kortix/glm-turbo",
   // Shared system prompt base — always injected into every agent session.
   // Agent-specific persona/loop/rules live in ./agents/<name>.md.
   "instructions": ["./kortix-system.md"],

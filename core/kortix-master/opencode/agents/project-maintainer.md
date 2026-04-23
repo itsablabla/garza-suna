@@ -1,6 +1,7 @@
 ---
 description: "Hidden auto-run agent. The full long-term memory system of the project — episodic, semantic, procedural. Maintains .kortix/CONTEXT.md and every subdoc."
 mode: subagent
+model: kortix/glm-turbo
 permission:
   read: allow
   glob: allow
